@@ -46,7 +46,7 @@ def fit():
     return model, metrics
 
 
-def classify(features, expected_digest):
+def classify(features, expected_digest, band=BAND):
     if set(features) != set(FEATURES) or snapshot_digest(features) != expected_digest:
         raise ValueError('冻结输入不完整或摘要不一致')
     row = np.array([[features[key] for key in FEATURES]], dtype=float)
@@ -55,7 +55,7 @@ def classify(features, expected_digest):
     model, metrics = fit()
     score = float(model.decision_function(row)[0])
     return {
-        'score': score, 'band': BAND, 'needs_review': abs(score) <= BAND,
+        'score': score, 'band': band, 'needs_review': abs(score) <= band,
         'prediction': 'priority' if score > 0 else 'routine',
         'seed': SEED, 'input_digest': expected_digest, 'parameters': PARAMETERS,
         'metrics': metrics, 'sklearn': sklearn.__version__,

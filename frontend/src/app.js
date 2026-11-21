@@ -1,4 +1,5 @@
 import {api} from './api.js';
+import {calibration} from './calibration.js';
 import {incidents, reviews} from './incidents.js';
 import {resources, schedule} from './planning.js';
 import {roles, setSession, store} from './store.js';
@@ -6,8 +7,8 @@ import {blank, esc, field} from './ui.js';
 
 const root = document.querySelector('#root');
 const notice = document.querySelector('#notice');
-const sections = {schedule: ['靠泊申请', schedule], resources: ['潮汐与拖轮', resources], incidents: ['延误边界', incidents], reviews: ['调度复盘', reviews]};
-const feedback = {register: '申请已登记', publish: '潮窗已发布', revise: '改期已保存', assign: '拖轮已预约', confirm: '靠泊已确认', report: '现场事件已入队', verify: '人工分类已签署', dispatch: '值班指令已发布', close: '复盘已结案', retry: '计算已重新入队'};
+const sections = {schedule: ['靠泊申请', schedule], resources: ['潮汐与拖轮', resources], incidents: ['延误边界', incidents], reviews: ['调度复盘', reviews], calibration: ['间隔带校准', calibration]};
+const feedback = {register: '申请已登记', publish: '潮窗已发布', revise: '改期已保存', assign: '拖轮已预约', confirm: '靠泊已确认', report: '现场事件已入队', verify: '人工分类已签署', dispatch: '值班指令已发布', close: '复盘已结案', retry: '计算已重新入队', label: '结案标注已更正', calibrate: '评估已生成', activateBand: '带宽已启用', retryCalibration: '评估已沿用原样本重试'};
 let noticeTimer;
 let revision = 0;
 
@@ -42,11 +43,14 @@ async function refresh() {
   if (!store.session) { render(); return; }
   try {
     const [section, code] = route();
-    const data = await api.watch();
+    const [data, calibrationData] = await Promise.all([
+      api.watch(),
+      section === 'calibration' ? api.calibrations() : Promise.resolve(store.calibration),
+    ]);
     const wantsHistory = code && ['schedule', 'reviews'].includes(section);
     const history = wantsHistory ? await api.history(code) : [];
     if (current !== revision) return;
-    Object.assign(store, {data, history, error: ''});
+    Object.assign(store, {data, calibration: calibrationData, history, error: ''});
   } catch (error) {
     if (current !== revision) return;
     store.error = error.message;
@@ -78,10 +82,14 @@ root.addEventListener('submit', async event => {
       setSession(await api.signIn(payload));
       history.replaceState(null, '', '#schedule');
     } else {
-      await (['register', 'publish', 'report'].includes(action) ? api[action](payload) : api[action](code, payload));
-      const target = {register: 'schedule', publish: 'resources', report: 'incidents'}[action];
-      if (target) history.replaceState(null, '', `#${target}/${encodeURIComponent(payload.code)}`);
-      toast(feedback[action]);
+      const response = await (['register', 'publish', 'report', 'calibrate'].includes(action) ? api[action](payload) : api[action](code, payload));
+      if (action !== 'calibrate') {
+        const target = {register: 'schedule', publish: 'resources', report: 'incidents'}[action];
+        if (target) history.replaceState(null, '', `#${target}/${encodeURIComponent(payload.code)}`);
+      }
+      toast(action === 'activateBand' && response?.state !== 'activated'
+        ? `未启用：${response?.verdict || '现行带宽已变化，需重新比较'}`
+        : feedback[action]);
     }
     await refresh();
   } catch (failure) {
@@ -97,7 +105,7 @@ root.addEventListener('click', event => {
   const action = event.target.closest('[data-click]')?.dataset.click;
   if (action === 'logout' && !store.busy) {
     setSession(null);
-    Object.assign(store, {history: [], error: ''});
+    Object.assign(store, {history: [], calibration: null, error: ''});
     clearTimeout(noticeTimer);
     notice.classList.remove('visible');
     refresh();

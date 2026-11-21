@@ -73,3 +73,9 @@ class DispatchInput(Payload):
 class CloseInput(Payload):
     all_fast_at: NaiveDatetime
     outcome: Note
+    actual_priority: DelayClass
+
+
+class LabelCorrection(Payload):
+    actual_priority: DelayClass
+    reason: Note

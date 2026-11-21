@@ -3,10 +3,12 @@ from datetime import timedelta
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 
-from . import incidents, planning
+from . import calibration, incidents, planning
 from .database import Session
-from .models import Audit, Berth, BerthRequest, DelayIncident, DispatchReview, Role, TideWindow, Tug, TugAssignment, User
-from .schemas import AssignTug, CloseInput, DispatchInput, IncidentInput, Login, MarginDecision, RequestInput, Schedule, TideInput
+from .models import (Audit, BandCalibration, Berth, BerthRequest, CalibrationSample, DelayIncident, DispatchReview, Role,
+                     TideWindow, Tug, TugAssignment, User)
+from .schemas import (AssignTug, CloseInput, DispatchInput, IncidentInput, LabelCorrection,
+                      Login, MarginDecision, RequestInput, Schedule, TideInput)
 from .security import current_user, permitted, token_for, valid_password
 
 router = APIRouter()
@@ -125,3 +127,56 @@ def issue_action(code: str, data: DispatchInput, user: User = supervise):
 def close_review(code: str, data: CloseInput, user: User = supervise):
     with Session.begin() as db:
         return row(incidents.close(db, user.username, code, data))
+
+
+@router.post('/delay-incidents/{code}/label')
+def correct_label(code: str, data: LabelCorrection, user: User = supervise):
+    with Session.begin() as db:
+        return row(incidents.correct_label(db, user.username, code, data))
+
+
+def calibration_row(db, record):
+    samples = db.scalars(select(CalibrationSample)
+                         .where(CalibrationSample.calibration_code == record.code)
+                         .order_by(CalibrationSample.observed_at, CalibrationSample.incident_code)).all()
+    return {
+        **row(record),
+        'active_band': calibration.current_band(db),
+        'samples': [{**row(sample),
+                     'score': round(sample.score, 5),
+                     'flags': calibration.sample_flags(sample.score, sample.actual_priority,
+                                                       record.baseline_band, record.candidate_band)}
+                    for sample in samples],
+    }
+
+
+@router.get('/calibrations')
+def calibrations(user: User = read):
+    with Session.begin() as db:
+        return {
+            'active_band': calibration.current_band(db),
+            'evaluations': [calibration_row(db, item) for item in db.scalars(
+                select(BandCalibration).order_by(BandCalibration.created_at.desc(), BandCalibration.code))],
+        }
+
+
+@router.post('/calibrations', status_code=201)
+def create_calibration(user: User = supervise):
+    with Session.begin() as db:
+        return calibration_row(db, calibration.create(db, user.username))
+
+
+@router.post('/calibrations/{code}/activate')
+def activate_calibration(code: str, user: User = supervise):
+    with Session.begin() as db:
+        record = calibration.activate(db, user.username, code)
+        db.flush()
+        return calibration_row(db, record)
+
+
+@router.post('/calibrations/{code}/retry')
+def retry_calibration(code: str, user: User = supervise):
+    with Session.begin() as db:
+        record = calibration.retry(db, user.username, code)
+        db.flush()
+        return calibration_row(db, record)

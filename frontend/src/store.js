@@ -3,13 +3,15 @@ export const requestStates = {requested: '待核验', tug_reserved: '已预约�
 export const incidentStates = {queued: '待计算', failed: '计算失败', margin_review: '待人工复核', ready: '待发布指令', actioned: '待复盘', closed: '已结案'};
 export const decisions = {routine: '常规跟踪', priority: '优先处置'};
 export const actions = {monitor: '继续跟踪', standby: '拖轮待命', retime: '通知改期'};
+export const calibrationStates = {evaluating: '评估中', error: '评估失败', rejected: '未通过', passed: '盲测通过', activated: '已启用'};
+export const segments = {selection: '前段选择', blind: '后段盲测'};
 
 function restoreSession() {
   try { return JSON.parse(sessionStorage.getItem('berth-session')); }
   catch { return null; }
 }
 
-export const store = {session: restoreSession(), data: null, history: [], error: '', busy: false};
+export const store = {session: restoreSession(), data: null, calibration: null, history: [], error: '', busy: false};
 export const supervisor = () => store.session?.role === 'supervisor';
 export const canWrite = () => store.session && store.session.role !== 'viewer';
 

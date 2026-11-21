@@ -2,6 +2,7 @@ import {actions, canWrite, decisions, incidentStates, store, supervisor} from '.
 import {blank, esc, field, form, journal, notes, pill, portDate, selectField, timeInput, title} from './ui.js';
 
 const features = {eta_offset_min: '引航偏离 / 分钟', tide_reserve_min: '潮窗余量 / 分钟', wind_kn: '现场风速 / kn', tug_wait_min: '拖轮等候 / 分钟'};
+const actualLabel = actual => actual == null ? '待标注' : actual ? '实际优先' : '实际常规';
 
 function caseIntake() {
   if (!canWrite()) return '';
@@ -14,16 +15,17 @@ function caseIntake() {
     ${field('拖轮等候 / 分钟', 'tug_wait_min', 'number', '', 'min="0" max="180"')}</div>${notes('现场事件', 'event_note', '记录引航或拖轮通报。')}`, '冻结输入并分类') : blank('暂无可登记的申请', '请先确认靠泊，同一申请只登记一条延误案件。')}</details>`;
 }
 
-function boundary(result) {
+function boundary(result, band) {
   if (!result) return '';
-  const {score, band, prediction, metrics} = result;
-  const extent = Math.max(1.2, Math.ceil(Math.abs(score) * 10 + 1) / 10);
+  const {score, prediction, metrics} = result;
+  const half = Math.max(0.01, Number(band ?? result.band));
+  const extent = Math.max(1.2, Math.ceil(Math.max(Math.abs(score), half) * 10 + 1) / 10);
   const left = (score / extent + 1) * 50;
   const signed = `${score >= 0 ? '+' : '−'}${Math.abs(score).toFixed(4)}`;
   return `<div class="boundary"><div class="section-head"><h3>模型决策分数 f(x)</h3><strong class="score mono">${signed}</strong></div>
-  <div class="decision-chart" style="--pointer:${left}%;--half-band:${band * 50 / extent}%"><div class="axis"></div><div class="review-band"></div><div class="axis-center"></div><div class="score-pointer" title="${signed}"></div></div>
-  <div class="axis-labels"><span>常规侧</span><b>±${band.toFixed(2)} 人工复核带</b><span>优先侧</span></div>
-  <p class="model-note">模型建议 <strong>${esc(decisions[prediction])}</strong> · 合成验证集平衡准确率 ${(metrics.balanced_accuracy * 100).toFixed(1)}%</p>
+  <div class="decision-chart" style="--pointer:${left}%;--half-band:${half * 50 / extent}%"><div class="axis"></div><div class="review-band"></div><div class="axis-center"></div><div class="score-pointer" title="${signed}"></div></div>
+  <div class="axis-labels"><span>常规侧</span><b>±${half.toFixed(2)} 人工复核带</b><span>优先侧</span></div>
+  <p class="model-note">登记时冻结带宽 ${half.toFixed(2)} · 模型建议 <strong>${esc(decisions[prediction])}</strong> · 合成验证集平衡准确率 ${(metrics.balanced_accuracy * 100).toFixed(1)}%</p>
   <details class="model-details"><summary>计算记录</summary><dl class="measurements"><div><dt>训练 / 验证</dt><dd>${metrics.train_rows} / ${metrics.validation_rows}</dd></div><div><dt>固定种子</dt><dd>${result.seed}</dd></div><div><dt>支持向量数</dt><dd>${metrics.support_vectors}</dd></div></dl><p class="digest">SHA-256 ${esc(result.input_digest)}</p></details></div>`;
 }
 
@@ -51,9 +53,10 @@ function incidentDetail(incident) {
     <dl class="feature-list">${Object.entries(features).map(([key, label]) => `<div><dt>${label}</dt><dd>${esc(incident.features[key])}</dd></div>`).join('')}</dl>
     ${incident.state === 'queued' ? '<p class="clearance" role="status">后台正在计算冻结观测，完成后自动更新。</p>' : ''}
     ${incident.error ? `<p class="warning">${esc(incident.error)}</p>` : ''}
-    ${boundary(incident.result)}
+    ${boundary(incident.result, incident.band)}
     ${incident.state === 'margin_review' ? '<p class="warning">本案处于间隔带。签署分类前无法发布调度指令。</p>' : ''}
     ${incident.decision ? `<p class="clearance">${incident.decided_by ? `主管 ${esc(incident.decided_by)} 签署` : '分类结果'} · <strong>${esc(decisions[incident.decision])}</strong>${incident.decision_reason ? ` · ${esc(incident.decision_reason)}` : ''}</p>` : ''}
+    ${incident.state === 'closed' ? `<p class="clearance">结案标注 · <strong>${actualLabel(incident.actual_priority)}</strong>${incident.labelled_by ? ` · ${esc(incident.labelled_by)}` : ''}${incident.labelled_at ? ` · ${esc(portDate(incident.labelled_at))}` : ''}</p>` : ''}
     ${actionsFor(incident)}${action ? `<a class="quiet link-block" href="#reviews/${esc(incident.code)}">打开调度复盘 →</a>` : ''}`;
 }
 
@@ -76,8 +79,13 @@ export function reviews(code) {
     detail = `<header class="subhead"><div><div class="reference mono">${esc(code)} / ${esc(request.code)}</div><h2>${esc(request.vessel)} · ${esc(actions[record.action])}</h2></div>${pill(incident.state, incidentStates)}</header>
       <p class="event-note"><span>发布人 ${esc(record.issued_by)} · 值班调度指令</span>${esc(record.instruction)}</p>
       <dl class="measurements"><div><dt>原计划引航</dt><dd>${esc(portDate(request.eta))}</dd></div><div><dt>延误观测</dt><dd>${esc(portDate(incident.observed_at))}</dd></div><div><dt>全缆系妥</dt><dd>${esc(portDate(record.all_fast_at))}</dd></div></dl>
-      ${record.closed_at ? `<p class="clearance"><strong>结案人 ${esc(record.closed_by)}</strong> · ${esc(record.outcome)}</p>` : supervisor() ? form('close', code, `<h3>补登作业实绩</h3>${field('全缆系妥时刻', 'all_fast_at', 'datetime-local', '', `min="${esc(timeInput(incident.observed_at))}"`)}
-        ${notes('复盘纪要', 'outcome', '写明指令执行结果、交接人及改进项。')}`, '保存实绩并结案') : '<p class="muted">等待主管补登作业实绩。</p>'}
+      ${record.closed_at ? `<p class="clearance"><strong>结案人 ${esc(record.closed_by)}</strong> · ${esc(record.outcome)}</p>
+        <p class="model-note">结案标注 <strong>${actualLabel(incident.actual_priority)}</strong> · 晚到的更正只进入下次评估。</p>
+        ${supervisor() ? form('label', code, `<h3>更正结案标注</h3>${selectField('实际情况', 'actual_priority', [['priority', '实际优先处置'], ['routine', '实际常规跟踪']], incident.actual_priority ? 'priority' : 'routine')}
+          ${notes('更正依据', 'reason', '写明补录依据；本次评估使用原标注，更正留待下次评估。')}`, '保存更正') : ''}` : supervisor() ? form('close', code, `<h3>补登作业实绩</h3>${field('全缆系妥时刻', 'all_fast_at', 'datetime-local', '', `min="${esc(timeInput(incident.observed_at))}"`)}
+        ${notes('复盘纪要', 'outcome', '写明指令执行结果、交接人及改进项。')}
+        ${selectField('结案实际分类', 'actual_priority', [['priority', '实际优先处置'], ['routine', '实际常规跟踪']])}
+        <small>结案标注进入间隔带校准评估，请按复盘实际判断。</small>`, '保存实绩并结案') : '<p class="muted">等待主管补登作业实绩。</p>'}
       <h3>交接与核验记录</h3>${journal(store.history)}`;
   }
   return `${title('调度复盘', '把处置指令、现场实绩和交接原因留在同一案件。')}

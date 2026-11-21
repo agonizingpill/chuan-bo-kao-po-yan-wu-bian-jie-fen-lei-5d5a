@@ -4,11 +4,12 @@ from redis.exceptions import RedisError
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session as DatabaseSession
 
+from .calibration import current_band
 from .classifier import snapshot_digest
 from .database import WAKE_QUEUE, queue
 from .models import Action, BerthRequest, DelayClass, DelayIncident, DispatchReview, IncidentState, RequestState
 from .planning import Rejected, audit, find, require_window, tide_clearance, utc_now
-from .schemas import CloseInput, DispatchInput, IncidentInput, MarginDecision
+from .schemas import CloseInput, DispatchInput, IncidentInput, LabelCorrection, MarginDecision
 
 log = logging.getLogger(__name__)
 
@@ -40,11 +41,13 @@ def report(db: DatabaseSession, actor: str, data: IncidentInput):
         'eta_offset_min': round(offset, 3), 'tide_reserve_min': round(reserve, 3),
         'wind_kn': data.wind_kn, 'tug_wait_min': data.tug_wait_min,
     }
+    band = current_band(db)
     incident = DelayIncident(code=data.code, request_code=request.code, radio_reference=data.radio_reference,
                              observed_at=data.observed_at, event_note=data.event_note, features=features,
-                             input_digest=snapshot_digest(features), state=IncidentState.QUEUED)
+                             input_digest=snapshot_digest(features), state=IncidentState.QUEUED, band=band)
     db.add(incident)
-    audit(db, actor, incident.code, 'INCIDENT_QUEUED', f'{request.code} · {incident.radio_reference}')
+    audit(db, actor, incident.code, 'INCIDENT_QUEUED',
+          f'{request.code} · {incident.radio_reference} · 间隔带 {band:.2f}')
     return incident
 
 
@@ -100,5 +103,23 @@ def close(db: DatabaseSession, actor: str, code: str, data: CloseInput):
     record.closed_by = actor
     incident.state = IncidentState.CLOSED
     request.state = RequestState.COMPLETED
-    audit(db, actor, code, 'REVIEW_CLOSED', f'{data.all_fast_at:%m-%d %H:%M} · {data.outcome}')
+    # The close-time ground truth for calibration. A late correction only feeds the next evaluation.
+    incident.actual_priority = data.actual_priority == DelayClass.PRIORITY
+    incident.labelled_by = actor
+    incident.labelled_at = utc_now()
+    audit(db, actor, code, 'REVIEW_CLOSED',
+          f'{data.all_fast_at:%m-%d %H:%M} · {data.outcome} · 实际{data.actual_priority.value}')
     return record
+
+
+def correct_label(db: DatabaseSession, actor: str, code: str, data: LabelCorrection):
+    incident = find(db, DelayIncident, code, lock=True)
+    if incident.state != IncidentState.CLOSED or incident.actual_priority is None:
+        raise Rejected('LABEL_STATE', '只为已结案且已标注的案件更正标注', code)
+    previous = '优先' if incident.actual_priority else '常规'
+    incident.actual_priority = data.actual_priority == DelayClass.PRIORITY
+    incident.labelled_by = actor
+    incident.labelled_at = utc_now()
+    audit(db, actor, code, 'LABEL_CORRECTED',
+          f'{previous} → {data.actual_priority.value} · {data.reason}')
+    return incident

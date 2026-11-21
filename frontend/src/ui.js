@@ -35,7 +35,9 @@ export const eventNames = {
   INSUFFICIENT_TIDE: '潮窗核验不通过', TUG_CONFLICT: '拖轮冲突', BERTH_CONFLICT: '泊位作业冲突', TUG_REQUIRED: '缺拖轮预约',
   INCIDENT_QUEUED: '登记现场延误', INCIDENT_REQUEUED: '重试模型', MODEL_FAILED: '模型计算失败', MODEL_CLASSIFIED: '模型分类',
   MARGIN_REVIEWED: '主管签署分类', MARGIN_REVIEW_REQUIRED: '间隔带未复核', ACTION_ISSUED: '发布调度指令', REVIEW_CLOSED: '完成复盘',
-  PRIORITY_ACTION_REQUIRED: '处置级别不符', ALL_FAST_TIME: '复盘时间不符',
+  PRIORITY_ACTION_REQUIRED: '处置级别不符', ALL_FAST_TIME: '复盘时间不符', LABEL_CORRECTED: '更正结案标注',
+  CALIBRATION_EVALUATING: '生成校准评估', CALIBRATION_PASSED: '盲测通过', CALIBRATION_REJECTED: '评估未通过',
+  CALIBRATION_ERROR: '评估失败', CALIBRATION_ACTIVATED: '启用新带宽', CALIBRATION_REQUEUED: '沿用原样本重试',
 };
 
 export function journal(events) {

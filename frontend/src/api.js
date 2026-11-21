@@ -33,4 +33,9 @@ export const api = {
   dispatch: (code, data) => request(`/delay-incidents/${encodeURIComponent(code)}/dispatch`, 'POST', data),
   close: (code, data) => request(`/delay-incidents/${encodeURIComponent(code)}/close`, 'POST', data),
   retry: code => request(`/delay-incidents/${encodeURIComponent(code)}/retry`, 'POST'),
+  label: (code, data) => request(`/delay-incidents/${encodeURIComponent(code)}/label`, 'POST', data),
+  calibrations: () => request('/calibrations'),
+  calibrate: () => request('/calibrations', 'POST'),
+  activateBand: code => request(`/calibrations/${encodeURIComponent(code)}/activate`, 'POST'),
+  retryCalibration: code => request(`/calibrations/${encodeURIComponent(code)}/retry`, 'POST'),
 };

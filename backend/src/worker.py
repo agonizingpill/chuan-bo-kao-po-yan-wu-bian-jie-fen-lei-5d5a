@@ -23,7 +23,7 @@ def process_next():
             return False
         incident.attempts += 1
         try:
-            result = classify(incident.features, incident.input_digest)
+            result = classify(incident.features, incident.input_digest, incident.band)
         except Exception as exc:
             log.exception('Classification failed for %s', incident.code)
             incident.state = IncidentState.FAILED

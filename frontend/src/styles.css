@@ -181,3 +181,14 @@ textarea { resize: vertical; }
   .entry-copy h1 { font-size: 3rem; margin: 8px 0; }
 }
 @media (prefers-reduced-motion: reduce) { #notice { transition: none; } }
+.calibration-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; margin-bottom: 18px; }
+.calibration-actions .model-note { margin-top: 0; }
+.active-band { color: var(--sea); font-size: .95rem; }
+.calibration-list { display: grid; gap: 16px; }
+.calibration-record { background: var(--panel); border: 1px solid var(--line); padding: 18px; }
+.calibration-record .subhead h3 { margin-top: 5px; }
+.calibration-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.calibration-record .operation { margin-top: 12px; }
+.calibration-sample { margin-top: 14px; }
+.calibration-sample h4 { margin: 0 0 6px; color: var(--muted); font-size: .85rem; font-weight: 500; }
+.calibration-sample table { white-space: nowrap; }

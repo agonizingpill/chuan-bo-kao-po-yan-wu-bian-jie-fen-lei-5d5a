@@ -1,6 +1,6 @@
 from enum import StrEnum
 
-from sqlalchemy import CheckConstraint, DateTime, Enum, Float, ForeignKey, Index, Integer, JSON, String, text
+from sqlalchemy import Boolean, CheckConstraint, DateTime, Enum, Float, ForeignKey, Index, Integer, JSON, String, UniqueConstraint, text
 from sqlalchemy.orm import DeclarativeBase, mapped_column
 
 
@@ -29,6 +29,14 @@ class IncidentState(StrEnum):
 class DelayClass(StrEnum):
     ROUTINE = 'routine'
     PRIORITY = 'priority'
+
+
+class CalibrationState(StrEnum):
+    EVALUATING = 'evaluating'
+    ERROR = 'error'
+    REJECTED = 'rejected'
+    PASSED = 'passed'
+    ACTIVATED = 'activated'
 
 
 class Action(StrEnum):
@@ -119,10 +127,58 @@ class DelayIncident(Base):
     result = mapped_column(JSON)
     error = mapped_column(String(180))
     attempts = mapped_column(Integer, nullable=False, default=0)
+    band = mapped_column(Float, nullable=False, default=0.30)
     decision = mapped_column(enum(DelayClass))
     decided_by = mapped_column(ForeignKey('users.username'))
     decision_reason = mapped_column(String(300))
     decided_at = mapped_column(DateTime)
+    actual_priority = mapped_column(Boolean)
+    labelled_by = mapped_column(ForeignKey('users.username'))
+    labelled_at = mapped_column(DateTime)
+
+
+class BandPolicy(Base):
+    __tablename__ = 'band_policy'
+    id = mapped_column(Integer, primary_key=True)
+    band = mapped_column(Float, nullable=False)
+
+
+class BandCalibration(Base):
+    __tablename__ = 'band_calibrations'
+    code = mapped_column(String(24), primary_key=True)
+    state = mapped_column(enum(CalibrationState), nullable=False, default=CalibrationState.EVALUATING, index=True)
+    baseline_band = mapped_column(Float, nullable=False)
+    candidate_band = mapped_column(Float)
+    split_at = mapped_column(DateTime)
+    sample_cutoff = mapped_column(DateTime, nullable=False)
+    selection_rows = mapped_column(Integer, nullable=False, default=0)
+    selection_priority = mapped_column(Integer, nullable=False, default=0)
+    blind_rows = mapped_column(Integer, nullable=False, default=0)
+    blind_priority = mapped_column(Integer, nullable=False, default=0)
+    current_referrals = mapped_column(Integer)
+    candidate_referrals = mapped_column(Integer)
+    current_missed = mapped_column(Integer)
+    candidate_missed = mapped_column(Integer)
+    attempts = mapped_column(Integer, nullable=False, default=0)
+    error = mapped_column(String(180))
+    verdict = mapped_column(String(500))
+    created_by = mapped_column(ForeignKey('users.username'), nullable=False)
+    created_at = mapped_column(DateTime, nullable=False)
+    completed_at = mapped_column(DateTime)
+    activated_at = mapped_column(DateTime)
+
+
+class CalibrationSample(Base):
+    __tablename__ = 'calibration_samples'
+    __table_args__ = (UniqueConstraint('calibration_code', 'incident_code'),)
+    id = mapped_column(Integer, primary_key=True)
+    calibration_code = mapped_column(ForeignKey('band_calibrations.code'), nullable=False, index=True)
+    incident_code = mapped_column(ForeignKey('delay_incidents.code'), nullable=False)
+    observed_at = mapped_column(DateTime, nullable=False)
+    segment = mapped_column(String(12), nullable=False)
+    score = mapped_column(Float, nullable=False)
+    band = mapped_column(Float, nullable=False)
+    actual_priority = mapped_column(Boolean, nullable=False)
 
 
 class DispatchReview(Base):
